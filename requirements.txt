@@ -1,5 +1,8 @@
-customtkinter
-pillow
-pytesseract
+streamlit
+easyocr
 python-docx
 reportlab
+torch
+torchvision
+pillow
+numpy
