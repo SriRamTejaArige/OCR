@@ -1,284 +1,405 @@
-import customtkinter as ctk
+import streamlit as st
+import easyocr
+from docx import Document
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
+from io import BytesIO
 
-from tkinter import filedialog
-from tkinter import messagebox
-
-from threading import Thread
-
-from ocr import (
-    extract_text,
-    save_as_docx,
-    save_as_pdf,
-    save_as_txt
+st.set_page_config(
+    page_title="Image OCR Converter",
+    page_icon="📝",
+    layout="wide"
 )
 
-ctk.set_appearance_mode("dark")
-ctk.set_default_color_theme("blue")
-
-app = ctk.CTk()
-
-app.title("Image OCR Converter")
-
-app.geometry("800x600")
-
-app.resizable(False, False)
-
-selected_image = None
+st.title("📝 Image OCR Converter")
+st.write("Upload an image and convert it to TXT, DOCX, or PDF")
 
 
-def select_image():
+@st.cache_resource
+def load_reader():
+    return easyocr.Reader(['en'], gpu=False)
 
-    global selected_image
 
-    file = filedialog.askopenfilename(
-        title="Select Image",
-        filetypes=[
-            (
-                "Images",
-                "*.png *.jpg *.jpeg *.bmp *.tiff *.tif *.webp"
+reader = load_reader()
+
+uploaded_file = st.file_uploader(
+    "Upload Image",
+    type=["png", "jpg", "jpeg", "bmp", "tiff", "tif", "webp"]
+)
+
+if uploaded_file:
+
+    st.image(uploaded_file, caption="Uploaded Image")
+
+    if st.button("Extract Text"):
+
+        with st.spinner("Running OCR..."):
+
+            image_bytes = uploaded_file.read()
+
+            results = reader.readtext(
+                image_bytes,
+                detail=0,
+                paragraph=True
+            )
+
+            extracted_text = "\n".join(results)
+
+        st.success("OCR Completed")
+
+        st.subheader("Extracted Text")
+
+        st.text_area(
+            "Preview",
+            extracted_text,
+            height=300
+        )
+
+        # TXT
+        st.download_button(
+            label="📄 Download TXT",
+            data=extracted_text.encode("utf-8"),
+            file_name="ocr_output.txt",
+            mime="text/plain"
+        )
+
+        # DOCX
+        doc_buffer = BytesIO()
+
+        doc = Document()
+        doc.add_heading("OCR Output", level=1)
+        doc.add_paragraph(extracted_text)
+
+        doc.save(doc_buffer)
+
+        doc_buffer.seek(0)
+
+        st.download_button(
+            label="📝 Download DOCX",
+            data=doc_buffer,
+            file_name="ocr_output.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+        # PDF
+        pdf_buffer = BytesIO()
+
+        pdf = SimpleDocTemplate(pdf_buffer)
+
+        styles = getSampleStyleSheet()
+
+        safe_text = extracted_text.replace("&", "&amp;")
+        safe_text = safe_text.replace("<", "&lt;")
+        safe_text = safe_text.replace(">", "&gt;")
+        safe_text = safe_text.replace("\n", "<br/>")
+
+        story = [
+            Paragraph(
+                safe_text,
+                styles["BodyText"]
             )
         ]
-    )
 
-    if file:
+        pdf.build(story)
 
-        selected_image = file
+        pdf_buffer.seek(0)
 
-        file_label.configure(
-            text=f"Selected:\n{file}"
+        st.download_button(
+            label="📕 Download PDF",
+            data=pdf_buffer,
+            file_name="ocr_output.pdf",
+            mime="application/pdf"
         )
 
 
-def convert_worker():
-
-    try:
-
-        status_label.configure(
-            text="Reading image..."
-        )
-
-        text = extract_text(
-            selected_image
-        )
-
-        if not text.strip():
-
-            messagebox.showwarning(
-                "No Text",
-                "No text found in image."
-            )
-
-            status_label.configure(
-                text="No text found"
-            )
-
-            return
-
-        preview_box.delete(
-            "1.0",
-            "end"
-        )
-
-        preview_box.insert(
-            "1.0",
-            text
-        )
-
-        output_format = format_var.get()
-
-        if output_format == "DOCX":
-
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".docx",
-                filetypes=[
-                    (
-                        "Word Document",
-                        "*.docx"
-                    )
-                ]
-            )
-
-            if save_path:
-                save_as_docx(
-                    text,
-                    save_path
-                )
-
-        elif output_format == "PDF":
-
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".pdf",
-                filetypes=[
-                    (
-                        "PDF File",
-                        "*.pdf"
-                    )
-                ]
-            )
-
-            if save_path:
-                save_as_pdf(
-                    text,
-                    save_path
-                )
-
-        else:
-
-            save_path = filedialog.asksaveasfilename(
-                defaultextension=".txt",
-                filetypes=[
-                    (
-                        "Text File",
-                        "*.txt"
-                    )
-                ]
-            )
-
-            if save_path:
-                save_as_txt(
-                    text,
-                    save_path
-                )
-
-        status_label.configure(
-            text="Completed ✓"
-        )
-
-        messagebox.showinfo(
-            "Success",
-            "Conversion completed."
-        )
-
-    except Exception as e:
-
-        messagebox.showerror(
-            "Error",
-            str(e)
-        )
-
-        status_label.configure(
-            text="Failed"
-        )
 
 
-def start_conversion():
-
-    if not selected_image:
-
-        messagebox.showwarning(
-            "Select Image",
-            "Please select an image."
-        )
-
-        return
-
-    Thread(
-        target=convert_worker,
-        daemon=True
-    ).start()
 
 
-title = ctk.CTkLabel(
-    app,
-    text="📝 Image OCR Converter",
-    font=("Arial", 30, "bold")
-)
 
-title.pack(
-    pady=20
-)
 
-select_btn = ctk.CTkButton(
-    app,
-    text="Select Image",
-    width=250,
-    height=40,
-    command=select_image
-)
 
-select_btn.pack(
-    pady=10
-)
+# import customtkinter as ctk
 
-file_label = ctk.CTkLabel(
-    app,
-    text="No image selected",
-    wraplength=700
-)
+# from tkinter import filedialog
+# from tkinter import messagebox
 
-file_label.pack()
+# from threading import Thread
 
-frame = ctk.CTkFrame(
-    app
-)
+# from ocr import (
+#     extract_text,
+#     save_as_docx,
+#     save_as_pdf,
+#     save_as_txt
+# )
 
-frame.pack(
-    pady=15
-)
+# ctk.set_appearance_mode("dark")
+# ctk.set_default_color_theme("blue")
 
-ctk.CTkLabel(
-    frame,
-    text="Output Format:"
-).pack(
-    side="left",
-    padx=10
-)
+# app = ctk.CTk()
 
-format_var = ctk.StringVar(
-    value="DOCX"
-)
+# app.title("Image OCR Converter")
 
-format_menu = ctk.CTkOptionMenu(
-    frame,
-    values=[
-        "DOCX",
-        "PDF",
-        "TXT"
-    ],
-    variable=format_var
-)
+# app.geometry("800x600")
 
-format_menu.pack(
-    side="left",
-    padx=10
-)
+# app.resizable(False, False)
 
-convert_btn = ctk.CTkButton(
-    app,
-    text="Convert",
-    width=250,
-    height=45,
-    command=start_conversion
-)
+# selected_image = None
 
-convert_btn.pack(
-    pady=15
-)
 
-preview_label = ctk.CTkLabel(
-    app,
-    text="OCR Preview"
-)
+# def select_image():
 
-preview_label.pack()
+#     global selected_image
 
-preview_box = ctk.CTkTextbox(
-    app,
-    width=700,
-    height=250
-)
+#     file = filedialog.askopenfilename(
+#         title="Select Image",
+#         filetypes=[
+#             (
+#                 "Images",
+#                 "*.png *.jpg *.jpeg *.bmp *.tiff *.tif *.webp"
+#             )
+#         ]
+#     )
 
-preview_box.pack(
-    pady=10
-)
+#     if file:
 
-status_label = ctk.CTkLabel(
-    app,
-    text="Ready"
-)
+#         selected_image = file
 
-status_label.pack(
-    pady=10
-)
+#         file_label.configure(
+#             text=f"Selected:\n{file}"
+#         )
 
-app.mainloop()
+
+# def convert_worker():
+
+#     try:
+
+#         status_label.configure(
+#             text="Reading image..."
+#         )
+
+#         text = extract_text(
+#             selected_image
+#         )
+
+#         if not text.strip():
+
+#             messagebox.showwarning(
+#                 "No Text",
+#                 "No text found in image."
+#             )
+
+#             status_label.configure(
+#                 text="No text found"
+#             )
+
+#             return
+
+#         preview_box.delete(
+#             "1.0",
+#             "end"
+#         )
+
+#         preview_box.insert(
+#             "1.0",
+#             text
+#         )
+
+#         output_format = format_var.get()
+
+#         if output_format == "DOCX":
+
+#             save_path = filedialog.asksaveasfilename(
+#                 defaultextension=".docx",
+#                 filetypes=[
+#                     (
+#                         "Word Document",
+#                         "*.docx"
+#                     )
+#                 ]
+#             )
+
+#             if save_path:
+#                 save_as_docx(
+#                     text,
+#                     save_path
+#                 )
+
+#         elif output_format == "PDF":
+
+#             save_path = filedialog.asksaveasfilename(
+#                 defaultextension=".pdf",
+#                 filetypes=[
+#                     (
+#                         "PDF File",
+#                         "*.pdf"
+#                     )
+#                 ]
+#             )
+
+#             if save_path:
+#                 save_as_pdf(
+#                     text,
+#                     save_path
+#                 )
+
+#         else:
+
+#             save_path = filedialog.asksaveasfilename(
+#                 defaultextension=".txt",
+#                 filetypes=[
+#                     (
+#                         "Text File",
+#                         "*.txt"
+#                     )
+#                 ]
+#             )
+
+#             if save_path:
+#                 save_as_txt(
+#                     text,
+#                     save_path
+#                 )
+
+#         status_label.configure(
+#             text="Completed ✓"
+#         )
+
+#         messagebox.showinfo(
+#             "Success",
+#             "Conversion completed."
+#         )
+
+#     except Exception as e:
+
+#         messagebox.showerror(
+#             "Error",
+#             str(e)
+#         )
+
+#         status_label.configure(
+#             text="Failed"
+#         )
+
+
+# def start_conversion():
+
+#     if not selected_image:
+
+#         messagebox.showwarning(
+#             "Select Image",
+#             "Please select an image."
+#         )
+
+#         return
+
+#     Thread(
+#         target=convert_worker,
+#         daemon=True
+#     ).start()
+
+
+# title = ctk.CTkLabel(
+#     app,
+#     text="📝 Image OCR Converter",
+#     font=("Arial", 30, "bold")
+# )
+
+# title.pack(
+#     pady=20
+# )
+
+# select_btn = ctk.CTkButton(
+#     app,
+#     text="Select Image",
+#     width=250,
+#     height=40,
+#     command=select_image
+# )
+
+# select_btn.pack(
+#     pady=10
+# )
+
+# file_label = ctk.CTkLabel(
+#     app,
+#     text="No image selected",
+#     wraplength=700
+# )
+
+# file_label.pack()
+
+# frame = ctk.CTkFrame(
+#     app
+# )
+
+# frame.pack(
+#     pady=15
+# )
+
+# ctk.CTkLabel(
+#     frame,
+#     text="Output Format:"
+# ).pack(
+#     side="left",
+#     padx=10
+# )
+
+# format_var = ctk.StringVar(
+#     value="DOCX"
+# )
+
+# format_menu = ctk.CTkOptionMenu(
+#     frame,
+#     values=[
+#         "DOCX",
+#         "PDF",
+#         "TXT"
+#     ],
+#     variable=format_var
+# )
+
+# format_menu.pack(
+#     side="left",
+#     padx=10
+# )
+
+# convert_btn = ctk.CTkButton(
+#     app,
+#     text="Convert",
+#     width=250,
+#     height=45,
+#     command=start_conversion
+# )
+
+# convert_btn.pack(
+#     pady=15
+# )
+
+# preview_label = ctk.CTkLabel(
+#     app,
+#     text="OCR Preview"
+# )
+
+# preview_label.pack()
+
+# preview_box = ctk.CTkTextbox(
+#     app,
+#     width=700,
+#     height=250
+# )
+
+# preview_box.pack(
+#     pady=10
+# )
+
+# status_label = ctk.CTkLabel(
+#     app,
+#     text="Ready"
+# )
+
+# status_label.pack(
+#     pady=10
+# )
+
+# app.mainloop()
